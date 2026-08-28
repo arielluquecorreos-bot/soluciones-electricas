@@ -11,6 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{
   --navy:#0B1B2B;
@@ -711,13 +712,18 @@ input,select,textarea{font-family:inherit;}
     </div>
 
     <div class="card-block">
-      <h3>🔗 Conexión con Google Sheets</h3>
-      <div class="setting-row">
-        <label>URL del Apps Script (Web App)</label>
-        <input id="cfg_url" placeholder="https://script.google.com/macros/s/AAAA.../exec">
-        <div class="hint">Pegá acá la URL que te da Google al implementar el Apps Script (ver instrucciones incluidas).</div>
-      </div>
-      <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="Settings.saveUrl()">Guardar y sincronizar</button>
+      <h3>✨ Mejorar con IA (opcional)</h3>
+      <div class="hint" style="margin-bottom:8px;">Para usar los botones de "redactar con IA" y "✨ mejorar texto", pegá acá tu propia clave — es gratis en <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a> (Groq) o pagás lo que uses en <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> (Claude). Sin esto, esos botones no funcionan.</div>
+      <div class="field" style="margin-bottom:8px;"><label>Tu clave de IA</label><input id="cfg_aiKey" type="password" placeholder="gsk_... o sk-ant-..."></div>
+      <button class="btn btn-secondary" style="width:100%;" onclick="Settings.saveAiKey()">Guardar clave</button>
+    </div>
+
+    <div class="card-block">
+      <h3>☁️ Cuenta de Google</h3>
+      <div class="hint" id="googleAuthInfo" style="margin-bottom:10px;">—</div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:8px;" id="googleConnectBtn" onclick="GoogleAuthUI.conectar()">Conectar con Google</button>
+      <button class="btn btn-secondary" style="width:100%;display:none;" id="googleDisconnectBtn" onclick="GoogleAuthUI.desconectar()">Desconectar esta cuenta</button>
+      <div class="hint" id="googleSheetLink" style="margin-top:8px;"></div>
     </div>
 
     <div class="card-block">
@@ -797,6 +803,19 @@ input,select,textarea{font-family:inherit;}
   </div>
 </div>
 
+<div class="fs-overlay" id="googleOverlay" style="z-index:490;">
+  <div class="fs-header" style="justify-content:space-between;">
+    <span style="width:32px;"></span>
+    <h3>☁️ Guardá tus datos en la nube</h3>
+    <button class="tool-btn" onclick="document.getElementById('googleOverlay').style.display='none';">✕</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:24px 20px;display:flex;flex-direction:column;justify-content:center;">
+    <div class="hint" style="margin-bottom:18px;text-align:center;">Conectá tu cuenta de Google para que tus presupuestos, informes y catálogo queden respaldados en tu propio Google Drive — si perdés el celular o reinstalás la app, no perdés nada.</div>
+    <button class="btn btn-primary" id="gConnectBtn" style="width:100%;" onclick="GoogleAuthUI.conectar()">Conectar con Google</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="document.getElementById('googleOverlay').style.display='none';">Ahora no (usar solo en este celular)</button>
+  </div>
+</div>
+
 <script>
 /* =========================================================
    LICENCIA — activación por código, válida 30 días desde que
@@ -872,6 +891,244 @@ const License = {
     el.textContent = dias>0
       ? `Activo a nombre de ${lic.nombre||'—'} — ${dias} día${dias===1?'':'s'} restante${dias===1?'':'s'}.`
       : 'Venció. Pedile un código nuevo al administrador.';
+  }
+};
+
+/* =========================================================
+   GUARDADO EN LA PROPIA NUBE DE CADA USUARIO
+   Inicia sesión con Google → crea (o encuentra) una planilla
+   propia en SU Google Drive → lee/escribe ahí directo, sin
+   pasar por ningún servidor intermedio de Ariel.
+   ========================================================= */
+const GOOGLE_CLIENT_ID = '672357272144-lqeidf28fq00bjhhndl5q525h3qr0ruf.apps.googleusercontent.com';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
+const SPREADSHEET_NAME = 'Soluciones Eléctricas - Datos';
+
+// Mismas columnas que usaba el backend viejo — así el resto de la app no cambia nada.
+const COLS_PRESUP = ['id','numero','fecha','cliente','direccion','telefono','modalidad','descripcion','items','opciones','total','factura','facturaDatos','incluirMateriales','incluirPreciosMateriales','incluirPlanos','notas','updatedAt'];
+const COLS_INFORME = ['id','numero','fecha','establecimiento','direccion','propietario','telefono','motivo','diagnostico','trabajos','items','observaciones','conclusion','montoDetalle','monto','factura','facturaDatos','incluirMateriales','incluirPreciosMateriales','incluirPlanos','notas','updatedAt'];
+const COLS_CATALOGO = ['id','nombre','precio','componentes','updatedAt'];
+
+function colLetter(n){
+  let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-1)/26); } return s;
+}
+
+const GoogleAuth = {
+  tokenClient: null,
+  init(){
+    if(!window.google || !google.accounts || !google.accounts.oauth2){
+      setTimeout(()=>GoogleAuth.init(), 300);
+      return;
+    }
+    GoogleAuth.tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: GOOGLE_SCOPES,
+      callback: ''
+    });
+  },
+  get(){ try{ return JSON.parse(localStorage.getItem('googleAuth')); }catch(e){ return null; } },
+  save(data){ localStorage.setItem('googleAuth', JSON.stringify(data)); },
+  isSignedIn(){ const g=GoogleAuth.get(); return !!(g && g.email); },
+  signOut(){
+    const g = GoogleAuth.get();
+    if(g && g.accessToken && window.google) google.accounts.oauth2.revoke(g.accessToken, ()=>{});
+    localStorage.removeItem('googleAuth');
+    localStorage.removeItem('spreadsheetId');
+  },
+  requestToken(silent){
+    return new Promise((resolve, reject)=>{
+      if(!GoogleAuth.tokenClient){ reject(new Error('Google todavía no cargó — esperá un segundo y reintentá.')); return; }
+      GoogleAuth.tokenClient.callback = async (resp)=>{
+        if(resp.error){ reject(new Error(resp.error)); return; }
+        const expiry = Date.now() + (Number(resp.expires_in)||3500)*1000;
+        let email = null;
+        try{
+          const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{Authorization:'Bearer '+resp.access_token}});
+          const info = await r.json();
+          email = info.email;
+        }catch(e){}
+        GoogleAuth.save({accessToken:resp.access_token, expiry, email});
+        resolve({accessToken:resp.access_token, email});
+      };
+      GoogleAuth.tokenClient.requestAccessToken({prompt: silent ? '' : 'consent'});
+    });
+  },
+  async ensureToken(){
+    const g = GoogleAuth.get();
+    if(g && g.accessToken && g.expiry > Date.now()+60000) return g.accessToken;
+    const res = await GoogleAuth.requestToken(true);
+    return res.accessToken;
+  }
+};
+
+const GSheets = {
+  spreadsheetId(){ return localStorage.getItem('spreadsheetId'); },
+  spreadsheetUrl(){ const id=GSheets.spreadsheetId(); return id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : ''; },
+
+  async ensureSpreadsheet(){
+    let id = GSheets.spreadsheetId();
+    if(id) return id;
+    const token = await GoogleAuth.ensureToken();
+    const q = encodeURIComponent(`name='${SPREADSHEET_NAME}' and trashed=false`);
+    const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {headers:{Authorization:'Bearer '+token}});
+    const searchData = await searchRes.json();
+    if(searchData.files && searchData.files.length){
+      id = searchData.files[0].id;
+      localStorage.setItem('spreadsheetId', id);
+      return id;
+    }
+    const headerRow = cols=>[{values: cols.map(h=>({userEnteredValue:{stringValue:h}}))}];
+    const configRows = [
+      {values: ['nextPresup','nextInforme'].map(h=>({userEnteredValue:{stringValue:h}}))},
+      {values: [1,1].map(v=>({userEnteredValue:{numberValue:v}}))}
+    ];
+    const body = {
+      properties: {title: SPREADSHEET_NAME},
+      sheets: [
+        {properties:{title:'Presupuestos'}, data:[{startRow:0,startColumn:0,rowData:headerRow(COLS_PRESUP)}]},
+        {properties:{title:'Informes'}, data:[{startRow:0,startColumn:0,rowData:headerRow(COLS_INFORME)}]},
+        {properties:{title:'Catalogo'}, data:[{startRow:0,startColumn:0,rowData:headerRow(COLS_CATALOGO)}]},
+        {properties:{title:'Config'}, data:[{startRow:0,startColumn:0,rowData:configRows}]}
+      ]
+    };
+    const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+      method:'POST', headers:{Authorization:'Bearer '+token, 'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const createData = await createRes.json();
+    if(!createData.spreadsheetId) throw new Error('No se pudo crear la planilla: '+JSON.stringify(createData));
+    id = createData.spreadsheetId;
+    localStorage.setItem('spreadsheetId', id);
+    return id;
+  },
+
+  async readAll(sheetName, cols){
+    const id = await GSheets.ensureSpreadsheet();
+    const token = await GoogleAuth.ensureToken();
+    const range = `${sheetName}!A2:${colLetter(cols.length)}`;
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(range)}`, {headers:{Authorization:'Bearer '+token}});
+    const data = await res.json();
+    const rows = data.values || [];
+    return rows.filter(r=>r[0]).map(row=>{
+      const obj = {};
+      cols.forEach((c,i)=>{
+        let v = row[i]!==undefined ? row[i] : '';
+        if((c==='items'||c==='observaciones'||c==='opciones'||c==='componentes') && v){
+          try{ v = JSON.parse(v); }catch(e){ v = []; }
+        } else if(c==='items'||c==='observaciones'||c==='opciones'||c==='componentes'){ v = []; }
+        if(c==='factura'||c==='incluirMateriales'||c==='incluirPreciosMateriales'||c==='incluirPlanos') v = (v===true||v==='true'||v==='TRUE');
+        if(c==='precio'||c==='total'||c==='monto') v = Number(v)||0;
+        obj[c]=v;
+      });
+      return obj;
+    });
+  },
+
+  async upsert(sheetName, cols, record){
+    const id = await GSheets.ensureSpreadsheet();
+    const token = await GoogleAuth.ensureToken();
+    const idColRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(sheetName+'!A:A')}`, {headers:{Authorization:'Bearer '+token}});
+    const idColData = await idColRes.json();
+    const idsCol = (idColData.values||[]).map(r=>r[0]);
+    const rowIndex = idsCol.indexOf(String(record.id));
+    const rowVals = cols.map(c=>{
+      let v = record[c];
+      if(c==='items'||c==='observaciones'||c==='opciones'||c==='componentes') v = JSON.stringify(v||[]);
+      if(v===undefined || v===null) v='';
+      return v;
+    });
+    if(rowIndex>=0){
+      const targetRange = `${sheetName}!A${rowIndex+1}:${colLetter(cols.length)}${rowIndex+1}`;
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(targetRange)}?valueInputOption=RAW`, {
+        method:'PUT', headers:{Authorization:'Bearer '+token, 'Content-Type':'application/json'}, body: JSON.stringify({values:[rowVals]})
+      });
+    } else {
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(sheetName+'!A:A')}:append?valueInputOption=RAW`, {
+        method:'POST', headers:{Authorization:'Bearer '+token, 'Content-Type':'application/json'}, body: JSON.stringify({values:[rowVals]})
+      });
+    }
+  },
+
+  async deleteById(sheetName, recordId){
+    const id = await GSheets.ensureSpreadsheet();
+    const token = await GoogleAuth.ensureToken();
+    const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties`, {headers:{Authorization:'Bearer '+token}});
+    const meta = await metaRes.json();
+    const sheetProp = (meta.sheets||[]).find(s=>s.properties.title===sheetName);
+    if(!sheetProp) return;
+    const valRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(sheetName+'!A:A')}`, {headers:{Authorization:'Bearer '+token}});
+    const valData = await valRes.json();
+    const idsCol = (valData.values||[]).map(r=>r[0]);
+    const rowIndex = idsCol.indexOf(String(recordId));
+    if(rowIndex<0) return;
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, {
+      method:'POST', headers:{Authorization:'Bearer '+token, 'Content-Type':'application/json'},
+      body: JSON.stringify({requests:[{deleteDimension:{range:{sheetId:sheetProp.properties.sheetId, dimension:'ROWS', startIndex:rowIndex, endIndex:rowIndex+1}}}]})
+    });
+  },
+
+  // Numeración de presupuestos/informes — vive en la hoja "Config" (fila 2: nextPresup, nextInforme).
+  async readConfig(){
+    const id = await GSheets.ensureSpreadsheet();
+    const token = await GoogleAuth.ensureToken();
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Config!A2:B2')}`, {headers:{Authorization:'Bearer '+token}});
+    const data = await res.json();
+    const row = (data.values||[])[0];
+    if(!row) return {nextPresup:1, nextInforme:1};
+    return {nextPresup:Number(row[0])||1, nextInforme:Number(row[1])||1};
+  },
+  async saveConfig(cfg){
+    const id = await GSheets.ensureSpreadsheet();
+    const token = await GoogleAuth.ensureToken();
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Config!A2:B2')}?valueInputOption=RAW`, {
+      method:'PUT', headers:{Authorization:'Bearer '+token, 'Content-Type':'application/json'},
+      body: JSON.stringify({values:[[Number(cfg.nextPresup)||1, Number(cfg.nextInforme)||1]]})
+    });
+  }
+};
+
+const GoogleAuthUI = {
+  async conectar(){
+    const btn = document.getElementById('googleConnectBtn') || document.getElementById('gConnectBtn');
+    if(btn){ btn.disabled = true; btn.textContent = 'Conectando...'; }
+    try{
+      await GoogleAuth.requestToken(false);
+      toast('Preparando tu planilla en Google Drive...','ok');
+      await GSheets.ensureSpreadsheet();
+      await Sync.pull(false);
+      toast('¡Conectado! Tus datos ya se guardan en tu Google Drive ✓','ok');
+      GoogleAuthUI.renderInfo();
+      const overlay = document.getElementById('googleOverlay');
+      if(overlay) overlay.style.display='none';
+    }catch(e){
+      toast('No se pudo conectar: '+e.message,'err');
+    }
+    if(btn){ btn.disabled = false; btn.textContent = 'Conectar con Google'; }
+  },
+  desconectar(){
+    if(!confirm('¿Desconectar esta cuenta de Google? Vas a dejar de sincronizar hasta que vuelvas a conectarte (tus datos en Drive no se borran).')) return;
+    GoogleAuth.signOut();
+    GoogleAuthUI.renderInfo();
+    toast('Cuenta desconectada','ok');
+  },
+  renderInfo(){
+    const info = document.getElementById('googleAuthInfo');
+    const connectBtn = document.getElementById('googleConnectBtn');
+    const disconnectBtn = document.getElementById('googleDisconnectBtn');
+    const linkEl = document.getElementById('googleSheetLink');
+    if(!info) return;
+    const g = GoogleAuth.get();
+    if(g && g.email){
+      info.textContent = `Conectado como ${g.email}. Tus presupuestos, informes y catálogo se guardan en tu propio Google Drive.`;
+      if(connectBtn) connectBtn.style.display='none';
+      if(disconnectBtn) disconnectBtn.style.display='block';
+      const url = GSheets.spreadsheetUrl();
+      if(linkEl) linkEl.innerHTML = url ? `<a href="${url}" target="_blank">📄 Ver tu planilla en Google Sheets</a>` : '';
+    } else {
+      info.textContent = 'Sin conectar — tus datos solo se guardan en este celular (sin respaldo en la nube).';
+      if(connectBtn) connectBtn.style.display='block';
+      if(disconnectBtn) disconnectBtn.style.display='none';
+      if(linkEl) linkEl.innerHTML = '';
+    }
   }
 };
 
@@ -1972,7 +2229,7 @@ const FullscreenEdit = {
 const AIImprove = {
   async run(btn, textareaId, campoLabel){
     const cfg = DB.cfg();
-    if(!cfg.appsScriptUrl){ toast('Primero configurá la URL del Apps Script en Ajustes','err'); return; }
+    if(!cfg.aiKey){ toast('Primero pegá tu clave de IA en Ajustes','err'); return; }
     const ta = document.getElementById(textareaId);
     const texto = ta.value.trim();
     if(!texto){ toast('Escribí o dictá algo primero','err'); return; }
@@ -1980,7 +2237,7 @@ const AIImprove = {
     btn.disabled = true;
     btn.innerHTML = '<div class="spin"></div>';
     try{
-      const resp = await fetch(cfg.appsScriptUrl, {method:'POST', body: JSON.stringify({action:'ai_improve_field', campo: campoLabel||textareaId, texto})});
+      const resp = await fetch(LICENSE_SERVER_URL, {method:'POST', body: JSON.stringify({action:'ai_improve_field', campo: campoLabel||textareaId, texto, apiKey:cfg.aiKey})});
       const data = await resp.json();
       if(!data.ok) throw new Error(data.error||'Error de IA');
       ta.value = data.text.trim();
@@ -2030,13 +2287,13 @@ const Audio = {
   },
   async redactarConIA(){
     const cfg = DB.cfg();
-    if(!cfg.appsScriptUrl){ toast('Primero configurá la URL del Apps Script en Ajustes','err'); return; }
+    if(!cfg.aiKey){ toast('Primero pegá tu clave de IA en Ajustes','err'); return; }
     const btn = document.getElementById('draftBtn');
     btn.disabled=true; btn.innerHTML='<div class="spin"></div> Redactando...';
     try{
-      const resp = await fetch(cfg.appsScriptUrl, {
+      const resp = await fetch(LICENSE_SERVER_URL, {
         method:'POST',
-        body: JSON.stringify({ action:'ai_draft', tipo: state.audioTipo, texto: Audio.finalText })
+        body: JSON.stringify({ action:'ai_draft', tipo: state.audioTipo, texto: Audio.finalText, apiKey: cfg.aiKey })
       });
       const data = await resp.json();
       if(!data.ok) throw new Error(data.error||'Error de IA');
@@ -2084,45 +2341,45 @@ const Audio = {
 /* =========================================================
    SINCRONIZACIÓN CON GOOGLE SHEETS (Apps Script)
    ========================================================= */
+const SHEET_MAP = {
+  presupuesto: {sheet:'Presupuestos', cols:COLS_PRESUP},
+  informe: {sheet:'Informes', cols:COLS_INFORME},
+  catalogo: {sheet:'Catalogo', cols:COLS_CATALOGO}
+};
+
 const Sync = {
   async pull(manual){
-    const cfg = DB.cfg();
-    if(!cfg.appsScriptUrl){ Sync.updateBadge(false); return; }
+    if(!GoogleAuth.isSignedIn()){ Sync.updateBadge(false); return; }
     try{
-      const resp = await fetch(cfg.appsScriptUrl+'?action=get_all');
-      const data = await resp.json();
-      if(data.ok){
-        state.presupuestos = data.presupuestos||[];
-        state.informes = data.informes||[];
-        state.catalogo = data.catalogo||[];
-        DB.set('presupuestos', state.presupuestos);
-        DB.set('informes', state.informes);
-        DB.set('catalogo', state.catalogo);
-        if(data.config){
-          const localCfg = DB.cfg();
-          localCfg.nextPresup = data.config.nextPresup;
-          localCfg.nextInforme = data.config.nextInforme;
-          DB.setCfg(localCfg);
-        }
-        Sync.updateBadge(true);
-        Home.renderList();
-        if(document.getElementById('screen-catalogo').classList.contains('active')) CatalogoUI.renderList(document.getElementById('catBuscar').value);
-        if(manual) toast('Sincronizado ✓','ok');
-      }
-    }catch(e){ Sync.updateBadge(false); if(manual) toast('No se pudo sincronizar','err'); }
+      state.presupuestos = await GSheets.readAll('Presupuestos', COLS_PRESUP);
+      state.informes = await GSheets.readAll('Informes', COLS_INFORME);
+      state.catalogo = await GSheets.readAll('Catalogo', COLS_CATALOGO);
+      DB.set('presupuestos', state.presupuestos);
+      DB.set('informes', state.informes);
+      DB.set('catalogo', state.catalogo);
+      const cfgCloud = await GSheets.readConfig();
+      const localCfg = DB.cfg();
+      localCfg.nextPresup = cfgCloud.nextPresup;
+      localCfg.nextInforme = cfgCloud.nextInforme;
+      DB.setCfg(localCfg);
+      Sync.updateBadge(true);
+      Home.renderList();
+      if(document.getElementById('screen-catalogo').classList.contains('active')) CatalogoUI.renderList(document.getElementById('catBuscar').value);
+      if(manual) toast('Sincronizado ✓','ok');
+    }catch(e){ Sync.updateBadge(false); if(manual) toast('No se pudo sincronizar: '+e.message,'err'); }
   },
   async push(tipo, rec){
-    const cfg = DB.cfg();
-    if(!cfg.appsScriptUrl) return;
-    try{
-      await fetch(cfg.appsScriptUrl, {method:'POST', body: JSON.stringify({action:'save_'+tipo, record:rec})});
-      Sync.updateBadge(true);
-    }catch(e){ Sync.updateBadge(false); toast('Guardado local. No se pudo sincronizar con la nube.','err'); }
+    if(!GoogleAuth.isSignedIn()) return;
+    const m = SHEET_MAP[tipo];
+    if(!m) return;
+    try{ await GSheets.upsert(m.sheet, m.cols, rec); Sync.updateBadge(true); }
+    catch(e){ Sync.updateBadge(false); toast('Guardado local. No se pudo sincronizar con la nube.','err'); }
   },
   async pushDelete(tipo, id){
-    const cfg = DB.cfg();
-    if(!cfg.appsScriptUrl) return;
-    try{ await fetch(cfg.appsScriptUrl, {method:'POST', body: JSON.stringify({action:'delete_'+tipo, id})}); }catch(e){}
+    if(!GoogleAuth.isSignedIn()) return;
+    const m = SHEET_MAP[tipo];
+    if(!m) return;
+    try{ await GSheets.deleteById(m.sheet, id); }catch(e){}
   },
   updateBadge(ok){
     const b = document.getElementById('syncBadge');
@@ -3116,23 +3373,17 @@ const Adjuntar = {
 const Settings = {
   render(){
     License.renderInfo();
+    GoogleAuthUI.renderInfo();
     const cfg = DB.cfg();
-    document.getElementById('cfg_url').value = cfg.appsScriptUrl||'';
     document.getElementById('cfg_nombre').value = cfg.nombre||'';
     document.getElementById('cfg_rubro').value = cfg.rubro||'';
     document.getElementById('cfg_tel').value = cfg.tel||'';
     document.getElementById('cfg_leyenda').value = cfg.leyenda||'';
+    document.getElementById('cfg_aiKey').value = cfg.aiKey||'';
     document.getElementById('cfg_nextPresup').value = cfg.nextPresup||'';
     document.getElementById('cfg_nextInforme').value = cfg.nextInforme||'';
     document.getElementById('statusInfo').textContent =
       `${state.presupuestos.length} presupuestos · ${state.informes.length} informes guardados en este dispositivo.`;
-  },
-  saveUrl(){
-    const cfg = DB.cfg();
-    cfg.appsScriptUrl = document.getElementById('cfg_url').value.trim();
-    DB.setCfg(cfg);
-    toast('URL guardada','ok');
-    Sync.pull(true);
   },
   saveBiz(){
     const cfg = DB.cfg();
@@ -3143,13 +3394,19 @@ const Settings = {
     DB.setCfg(cfg);
     toast('Datos guardados','ok');
   },
+  saveAiKey(){
+    const cfg = DB.cfg();
+    cfg.aiKey = document.getElementById('cfg_aiKey').value.trim();
+    DB.setCfg(cfg);
+    toast('Clave de IA guardada','ok');
+  },
   saveNumbering(){
     const cfg = DB.cfg();
     cfg.nextPresup = Number(document.getElementById('cfg_nextPresup').value)||0;
     cfg.nextInforme = Number(document.getElementById('cfg_nextInforme').value)||0;
     DB.setCfg(cfg);
-    if(cfg.appsScriptUrl){
-      fetch(cfg.appsScriptUrl, {method:'POST', body: JSON.stringify({action:'save_config', config:{nextPresup:cfg.nextPresup, nextInforme:cfg.nextInforme}})})
+    if(GoogleAuth.isSignedIn()){
+      GSheets.saveConfig({nextPresup:cfg.nextPresup, nextInforme:cfg.nextInforme})
         .then(()=> toast('Numeración actualizada y sincronizada ✓','ok'))
         .catch(()=> toast('Numeración guardada local. No se pudo subir a la nube.','err'));
     } else {
@@ -3164,17 +3421,19 @@ const Settings = {
 (function init(){
   Home.renderList();
   Sync.updateBadge(false);
-  const cfg = DB.cfg();
-  if(cfg.appsScriptUrl) Sync.pull(false);
+  GoogleAuth.init();
+  if(GoogleAuth.isSignedIn()) Sync.pull(false);
 
   if(!License.vigente()){
     License.mostrarActivacion(true);
   } else {
     License.renderInfo();
     License.reverificar().then(()=>{
-      if(!License.vigente()) License.mostrarActivacion(true);
+      if(!License.vigente()){ License.mostrarActivacion(true); return; }
       License.renderInfo();
+      if(!GoogleAuth.isSignedIn()) document.getElementById('googleOverlay').style.display='flex';
     });
+    if(License.vigente() && !GoogleAuth.isSignedIn()) document.getElementById('googleOverlay').style.display='flex';
   }
 })();
 </script>
