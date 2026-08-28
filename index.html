@@ -880,6 +880,7 @@ const License = {
       toast('¡Activado! Ya podés usar la app.','ok');
       document.getElementById('activationOverlay').style.display='none';
       License.renderInfo();
+      if(!GoogleAuth.isSignedIn()) document.getElementById('googleOverlay').style.display='flex';
     }
   },
   renderInfo(){
