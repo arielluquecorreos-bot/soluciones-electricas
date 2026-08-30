@@ -942,7 +942,7 @@ const License = {
    pasar por ningún servidor intermedio de Ariel.
    ========================================================= */
 const GOOGLE_CLIENT_ID = '672357272144-lqeidf28fq00bjhhndl5q525h3qr0ruf.apps.googleusercontent.com';
-const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email';
 const SPREADSHEET_NAME = 'Soluciones Eléctricas - Datos';
 
 // Mismas columnas que usaba el backend viejo — así el resto de la app no cambia nada.
@@ -1424,7 +1424,7 @@ function toast(msg, type){
   t.textContent = msg;
   t.className = 'toast show' + (type ? ' '+type : '');
   clearTimeout(t._h);
-  t._h = setTimeout(()=> t.className='toast', 2600);
+  t._h = setTimeout(()=> t.className='toast', type==='err' ? 6000 : 2600);
 }
 
 /* =========================================================
