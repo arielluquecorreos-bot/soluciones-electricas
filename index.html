@@ -699,6 +699,40 @@ input,select,textarea{font-family:inherit;}
   </div>
 
   <!-- ===================== SETTINGS ===================== -->
+  <div class="screen" id="screen-admin">
+    <div class="form-header">
+      <button class="back-btn" onclick="Nav.go('settings')">←</button>
+      <h2>Panel de administrador</h2>
+    </div>
+
+    <div class="card-block" id="adminLoginCard">
+      <h3>🔒 Ingresar</h3>
+      <div class="field" style="margin-bottom:8px;"><label>Clave de administrador</label><input id="adminPassInput" type="password" placeholder="Tu clave" onkeydown="if(event.key==='Enter')AdminPanel.desbloquear();"></div>
+      <button class="btn btn-primary" style="width:100%;" onclick="AdminPanel.desbloquear()">Entrar</button>
+    </div>
+
+    <div id="adminPanelBody" style="display:none;">
+      <div class="card-block">
+        <h3>+ Generar código nuevo</h3>
+        <div class="field"><label>Nombre de la persona</label><input id="adminNuevoNombre" placeholder="Ej: Diego Fernández"></div>
+        <div class="field" style="margin-bottom:8px;"><label>Notas (opcional, para vos)</label><input id="adminNuevoNotas" placeholder="Ej: electricista de Rafaela"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="AdminPanel.generar()">Generar código (30 días desde que lo active)</button>
+        <div id="adminCodigoBox" style="display:none;margin-top:12px;padding:16px;border-radius:12px;background:var(--navy);color:#fff;text-align:center;">
+          <div id="adminCodigoNombre" style="font-size:13px;color:#B7C4CE;"></div>
+          <div id="adminCodigoTexto" style="font-size:24px;font-weight:800;letter-spacing:2px;color:var(--amber);margin:6px 0;"></div>
+          <div style="font-size:12px;color:#B7C4CE;">Pasáselo tal cual — mayúsculas y el guion incluidos.</div>
+        </div>
+      </div>
+
+      <div class="card-block">
+        <h3>📋 Licencias emitidas</h3>
+        <div id="adminLista"><span class="hint">Cargando...</span></div>
+        <button class="item-add" style="margin-top:10px;" onclick="AdminPanel.cargarLista()">🔄 Actualizar lista</button>
+      </div>
+    </div>
+    <div style="height:20px;"></div>
+  </div>
+
   <div class="screen" id="screen-settings">
     <div class="form-header">
       <button class="back-btn" onclick="Nav.go('home')">←</button>
@@ -709,6 +743,12 @@ input,select,textarea{font-family:inherit;}
       <h3>⚡ Mi licencia</h3>
       <div class="hint" id="licenciaInfo" style="margin-bottom:10px;">—</div>
       <button class="btn btn-secondary" style="width:100%;" onclick="License.mostrarActivacion(false)">Activar con un código nuevo</button>
+    </div>
+
+    <div class="card-block">
+      <h3>🔑 Panel de administrador</h3>
+      <div class="hint" style="margin-bottom:10px;">Solo para vos — generar y revocar códigos de acceso para otras personas.</div>
+      <button class="btn btn-secondary" style="width:100%;" onclick="Nav.go('admin')">Abrir panel de administrador</button>
     </div>
 
     <div class="card-block">
@@ -1399,6 +1439,7 @@ const Nav = {
     if(screen==='home') Home.renderList();
     if(screen==='settings') Settings.render();
     if(screen==='catalogo') CatalogoUI.renderList('');
+    if(screen==='admin') AdminPanel.init();
   },
   // Para los botones de la barra inferior: si ya estás cargando un presupuesto/informe,
   // solo vuelve a esa pantalla sin perder lo que ya escribiste. Si no, arranca uno nuevo.
@@ -3368,6 +3409,93 @@ const Adjuntar = {
       Forms.calcTotal('itemsContainerInforme');
     }
     toast('Cables e insumos agregados — revisá y guardá ✓','ok');
+  }
+};
+
+const AdminPanel = {
+  password: '',
+  init(){
+    const saved = localStorage.getItem('adminPass');
+    if(saved){
+      AdminPanel.password = saved;
+      document.getElementById('adminLoginCard').style.display='none';
+      document.getElementById('adminPanelBody').style.display='block';
+      AdminPanel.cargarLista();
+    } else {
+      document.getElementById('adminLoginCard').style.display='block';
+      document.getElementById('adminPanelBody').style.display='none';
+    }
+  },
+  desbloquear(){
+    const p = document.getElementById('adminPassInput').value.trim();
+    if(!p){ toast('Escribí la clave','err'); return; }
+    AdminPanel.password = p;
+    localStorage.setItem('adminPass', p);
+    document.getElementById('adminLoginCard').style.display='none';
+    document.getElementById('adminPanelBody').style.display='block';
+    AdminPanel.cargarLista();
+  },
+  async call(action, extra){
+    const res = await fetch(LICENSE_SERVER_URL, {method:'POST', body: JSON.stringify({action, password:AdminPanel.password, ...extra})});
+    return res.json();
+  },
+  async generar(){
+    const nombre = document.getElementById('adminNuevoNombre').value.trim();
+    if(!nombre){ toast('Escribí el nombre de la persona','err'); return; }
+    const notas = document.getElementById('adminNuevoNotas').value.trim();
+    try{
+      const data = await AdminPanel.call('generar', {nombre, notas});
+      if(!data.ok){
+        toast(data.error||'Error al generar','err');
+        if(/clave/i.test(data.error||'')){ localStorage.removeItem('adminPass'); AdminPanel.init(); }
+        return;
+      }
+      document.getElementById('adminCodigoNombre').textContent = 'Código para '+nombre;
+      document.getElementById('adminCodigoTexto').textContent = data.codigo;
+      document.getElementById('adminCodigoBox').style.display='block';
+      document.getElementById('adminNuevoNombre').value='';
+      document.getElementById('adminNuevoNotas').value='';
+      toast('Código generado ✓','ok');
+      AdminPanel.cargarLista();
+    }catch(e){ toast('Error de conexión: '+e.message,'err'); }
+  },
+  async revocar(id, nombre){
+    if(!confirm('¿Revocar el acceso de "'+nombre+'"?')) return;
+    try{
+      const data = await AdminPanel.call('revocar', {id});
+      if(!data.ok){ toast(data.error||'Error al revocar','err'); return; }
+      toast('Revocado ✓','ok');
+      AdminPanel.cargarLista();
+    }catch(e){ toast('Error de conexión: '+e.message,'err'); }
+  },
+  async cargarLista(){
+    const cont = document.getElementById('adminLista');
+    try{
+      const data = await AdminPanel.call('listar', {});
+      if(!data.ok){
+        cont.innerHTML = '<span class="hint">'+(data.error||'Error al cargar')+'</span>';
+        return;
+      }
+      const licencias = (data.licencias||[]).sort((a,b)=> new Date(b.fechaGenerado) - new Date(a.fechaGenerado));
+      if(licencias.length===0){ cont.innerHTML = '<span class="hint">Todavía no generaste ninguna licencia.</span>'; return; }
+      const ahora = new Date();
+      cont.innerHTML = licencias.map(l=>{
+        let estado = l.estado, dias = '';
+        if(l.estado==='activo'){
+          const venc = new Date(l.fechaVencimiento);
+          if(venc.getTime() < ahora.getTime()){ estado='vencido'; }
+          else{ dias = Math.ceil((venc-ahora)/(1000*60*60*24)) + ' días restantes'; }
+        }
+        return `<div class="insumo-row" style="align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;">${Home.esc(l.nombre)} <span class="badge-sync" style="background:${estado==='activo'?'#E4F3E8':estado==='pendiente'?'#FFF3D6':'#FBE9E9'};color:${estado==='activo'?'#2E7D46':estado==='pendiente'?'#8a6d1a':'var(--danger)'};">${estado}</span></div>
+            <div class="hint">Código: ${Home.esc(l.codigo)}${dias?' · '+dias:''}</div>
+            ${l.notas?`<div class="hint">${Home.esc(l.notas)}</div>`:''}
+          </div>
+          ${estado!=='revocado' ? `<button class="tool-btn" onclick="AdminPanel.revocar('${l.id}','${Home.esc(l.nombre)}')">🗑️</button>` : ''}
+        </div>`;
+      }).join('');
+    }catch(e){ cont.innerHTML = '<span class="hint">Error de conexión: '+e.message+'</span>'; }
   }
 };
 
