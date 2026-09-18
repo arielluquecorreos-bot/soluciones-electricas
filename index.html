@@ -282,6 +282,7 @@ input,select,textarea{font-family:inherit;}
 
   <!-- ===================== HOME ===================== -->
   <div class="screen active" id="screen-home">
+    <div id="homeStatusBanner"></div>
     <div class="search-box">
       <span>🔎</span>
       <input id="searchInput" placeholder="Buscar por cliente, N°, dirección..." autocomplete="off" oninput="Home.renderList()">
@@ -887,16 +888,27 @@ const License = {
     }catch(e){ if(mostrarError) toast('No se pudo conectar para validar el código. Revisá tu internet.','err'); return false; }
   },
   // Chequeo silencioso en segundo plano contra el servidor (revocaciones, etc).
-  // Sin internet no rompe nada: se sigue confiando en lo guardado localmente.
+  // Sin internet, o si el servidor falla o tarda, NO se toca nada: se sigue
+  // confiando en lo guardado localmente. Solo se vence si el servidor dice
+  // con claridad que el código es inválido o fue revocado.
   async reverificar(){
     const lic = License.get();
     if(!lic || !lic.codigo) return;
     try{
       const res = await fetch(LICENSE_SERVER_URL, {method:'POST', body: JSON.stringify({action:'activar', codigo:lic.codigo})});
+      if(!res.ok) return; // error de servidor (5xx, etc.) — no tocar nada
       const data = await res.json();
-      if(data.ok) License.set({codigo:lic.codigo, nombre:data.nombre, vencimiento:data.vencimiento});
-      else License.set({codigo:lic.codigo, nombre:lic.nombre, vencimiento:'1970-01-01'});
-    }catch(e){ /* sin conexión: no se toca nada */ }
+      if(data.ok){
+        License.set({codigo:lic.codigo, nombre:data.nombre, vencimiento:data.vencimiento});
+        return;
+      }
+      const msg = (data.error||'').toLowerCase();
+      const esRechazoExplicito = msg.includes('inválido') || msg.includes('invalido') || msg.includes('revocad') || msg.includes('venci');
+      if(esRechazoExplicito){
+        License.set({codigo:lic.codigo, nombre:lic.nombre, vencimiento:'1970-01-01'});
+      }
+      // Cualquier otro error (temporal, desconocido) → no se toca la licencia local.
+    }catch(e){ /* sin conexión o falla de red: no se toca nada */ }
   },
   mostrarActivacion(forzado){
     document.getElementById('activationOverlay').style.display='flex';
@@ -1458,6 +1470,29 @@ const Nav = {
    HOME / LISTADO / BÚSQUEDA
    ========================================================= */
 const Home = {
+  renderStatusBanner(){
+    const cont = document.getElementById('homeStatusBanner');
+    if(!cont) return;
+    const cfg = DB.cfg();
+    const avisos = [];
+
+    if(!cfg.aiKey || !cfg.aiKey.trim()){
+      avisos.push({texto:'Sin clave de IA configurada — "Dictar por audio" y "Mejorar con IA" no van a funcionar hasta que la cargues.', accion:"Nav.go('settings')", boton:'Ir a Ajustes'});
+    }
+    const g = GoogleAuth.get();
+    if(g && g.email && (!g.expiry || g.expiry < Date.now())){
+      avisos.push({texto:'Tu sesión de Google venció — tus datos no se están respaldando en Drive hasta que te reconectes.', accion:"Nav.go('settings')", boton:'Reconectar'});
+    }
+
+    if(avisos.length===0){ cont.innerHTML=''; return; }
+    cont.innerHTML = avisos.map(a=>`
+      <div style="background:#FFF6E5;border:1.5px solid #F0C97A;border-radius:12px;padding:11px 13px;margin-bottom:10px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;flex-shrink:0;">⚠️</span>
+        <span style="flex:1;font-size:13px;color:#7A5A00;line-height:1.4;">${a.texto}</span>
+        <button style="flex-shrink:0;background:#7A5A00;color:#fff;border:none;padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:700;" onclick="${a.accion}">${a.boton}</button>
+      </div>
+    `).join('');
+  },
   setFilterTipo(t){
     state.filterTipo = t;
     document.getElementById('filterTodos').classList.toggle('active', t==='todos');
@@ -1480,6 +1515,7 @@ const Home = {
   },
   renderList(){
     Home.populateDateFilters();
+    Home.renderStatusBanner();
     const q = (document.getElementById('searchInput').value||'').toLowerCase().trim();
     const mes = document.getElementById('filterMes').value;
     const anio = document.getElementById('filterAnio').value;
@@ -2282,7 +2318,6 @@ const AIImprove = {
       const resp = await fetch(LICENSE_SERVER_URL, {method:'POST', body: JSON.stringify({action:'ai_improve_field', campo: campoLabel||textareaId, texto, apiKey:cfg.aiKey})});
       const data = await resp.json();
       if(!data.ok) throw new Error(data.error||'Error de IA');
-      if(!data.text) throw new Error('El servidor no devolvió texto. Respuesta: '+JSON.stringify(data).slice(0,300));
       ta.value = data.text.trim();
       toast('Texto mejorado con IA ✓ revisalo','ok');
     }catch(err){
