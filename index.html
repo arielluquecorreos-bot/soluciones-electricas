@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- BUILD_VERSION: 2026-09-19-v6-debug -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -2018,6 +2019,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
+window.BUILD_VERSION = '2026-09-19-v6-debug';
 function writeWrappedText(doc, text, x, startY, maxWidth, lineHeight, bottomLimit){
   let y = startY;
   const lines = doc.splitTextToSize(text||'-', maxWidth);
