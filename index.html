@@ -1968,6 +1968,43 @@ document.getElementById('i_factura').addEventListener('change', e=>{
 /* =========================================================
    GENERACIÓN DE PDF (jsPDF + autotable)
    ========================================================= */
+function sanitizeForPdf(value){
+  if(typeof value !== 'string') return value;
+  return value
+    .replace(/\u00A0/g, ' ')            // espacio "duro" que mete Word
+    .replace(/[\u2000-\u200A]/g, ' ')   // otros espacios unicode raros
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // espacios de ancho cero / caracteres invisibles
+    .replace(/[\u2028\u2029]/g, '\n')   // separadores de línea/párrafo raros
+    .replace(/\r\n/g, '\n')
+    .replace(/[\u2018\u2019]/g, "'")    // comillas simples "curvas" de Word
+    .replace(/[\u201C\u201D]/g, '"')    // comillas dobles "curvas" de Word
+    .replace(/[ \t]+/g, ' ')            // colapsar espacios múltiples (sin tocar saltos de línea)
+    .trim();
+}
+function sanitizeRecDeep(obj){
+  if(obj == null) return obj;
+  if(typeof obj === 'string') return sanitizeForPdf(obj);
+  if(Array.isArray(obj)) return obj.map(sanitizeRecDeep);
+  if(typeof obj === 'object'){
+    const out = {};
+    for(const k in obj) out[k] = sanitizeRecDeep(obj[k]);
+    return out;
+  }
+  return obj;
+}
+// Escribe un párrafo largo paginando ANTES de que una línea se corte al final
+// de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
+function writeWrappedText(doc, text, x, startY, maxWidth, lineHeight, bottomLimit){
+  let y = startY;
+  const lines = doc.splitTextToSize(text||'-', maxWidth);
+  lines.forEach(line=>{
+    if(y > bottomLimit){ doc.addPage(); y = 20; }
+    doc.text(line, x, y);
+    y += lineHeight;
+  });
+  return y;
+}
+
 const PDF = {
   async agregarPlanos(doc, rec){
     if(!rec.incluirPlanos) return;
@@ -1990,7 +2027,8 @@ const PDF = {
       doc.addImage(png, 'PNG', 14, 30, imgW, imgH);
     }
   },
-  async generate(tipo, rec){
+  async generate(tipo, recRaw){
+    const rec = sanitizeRecDeep(recRaw);
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const cfg = DB.cfg();
@@ -2020,10 +2058,10 @@ const PDF = {
       y+=8;
 
       if(rec.descripcion){
+        if(y > 265){ doc.addPage(); y = 20; }
         doc.setFontSize(9); doc.setFont(undefined,'bold'); doc.text('Descripción del trabajo:', 14, y); y+=5;
         doc.setFont(undefined,'normal');
-        const descLines = doc.splitTextToSize(rec.descripcion, 182);
-        doc.text(descLines, 14, y); y += descLines.length*4.6 + 6;
+        y = writeWrappedText(doc, rec.descripcion, 14, y, 182, 4.6, 280) + 6;
       }
 
       const incluirMat = rec.incluirMateriales !== false;
@@ -2082,8 +2120,7 @@ const PDF = {
           doc.text(op.titulo||('Opción '+(i+1)), 14, fy); fy+=5.5;
           doc.setFont(undefined,'normal'); doc.setFontSize(9);
           if(op.descripcion){
-            const opLines = doc.splitTextToSize(op.descripcion, 182);
-            doc.text(opLines, 14, fy); fy += opLines.length*4.6 + 2;
+            fy = writeWrappedText(doc, op.descripcion, 14, fy, 182, 4.6, 280) + 2;
           }
           doc.setFont(undefined,'bold');
           doc.text(`Mano de obra: $${Number(op.manoObra||0).toLocaleString('es-AR')}`, 14, fy); fy+=5;
@@ -2108,9 +2145,11 @@ const PDF = {
       let y=36;
       doc.setTextColor(20,20,20);
       let secN=0;
-      const section=(title)=>{ secN++; doc.setFontSize(11); doc.setFont(undefined,'bold'); doc.setTextColor(...navy); doc.text(secN+'. '+title,14,y); doc.setDrawColor(...amber); doc.setLineWidth(0.8); doc.line(14,y+1.5,196,y+1.5); y+=7; doc.setTextColor(20,20,20); doc.setFont(undefined,'normal'); doc.setFontSize(9.5); return secN; };
-      const para=(text)=>{ const lines=doc.splitTextToSize(text||'-',182); doc.text(lines,14,y); y+=lines.length*4.6+5;
-        if(y>270){ doc.addPage(); y=20; } };
+      const section=(title)=>{
+        if(y > 262){ doc.addPage(); y = 20; } // aseguramos espacio para el título antes de escribirlo
+        secN++; doc.setFontSize(11); doc.setFont(undefined,'bold'); doc.setTextColor(...navy); doc.text(secN+'. '+title,14,y); doc.setDrawColor(...amber); doc.setLineWidth(0.8); doc.line(14,y+1.5,196,y+1.5); y+=7; doc.setTextColor(20,20,20); doc.setFont(undefined,'normal'); doc.setFontSize(9.5); return secN;
+      };
+      const para=(text)=>{ y = writeWrappedText(doc, text, 14, y, 182, 4.6, 280) + 5; };
 
       section('Datos del establecimiento');
       doc.text(`Establecimiento: ${rec.establecimiento||''}`,14,y); y+=5;
