@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-19-v7-jspdf304 -->
+<!-- BUILD_VERSION: 2026-09-19-v8-customwrap -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -2019,10 +2019,34 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-19-v7-jspdf304';
+window.BUILD_VERSION = '2026-09-19-v8-customwrap';
+// Arma las líneas nosotros mismos, palabra por palabra, sin usar
+// doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
+function customWrap(doc, text, maxWidth){
+  const str = (text==null || text==='') ? '-' : String(text);
+  const paragraphs = str.split('\n');
+  const lines = [];
+  paragraphs.forEach(par=>{
+    const words = par.split(' ').filter(w=>w.length>0);
+    if(words.length===0){ lines.push(''); return; }
+    let current = '';
+    words.forEach(word=>{
+      const test = current ? current + ' ' + word : word;
+      const width = doc.getTextWidth(test);
+      if(width > maxWidth && current){
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    });
+    lines.push(current);
+  });
+  return lines;
+}
 function writeWrappedText(doc, text, x, startY, maxWidth, lineHeight, bottomLimit){
   let y = startY;
-  const lines = doc.splitTextToSize(text||'-', maxWidth);
+  const lines = customWrap(doc, text, maxWidth);
   lines.forEach(line=>{
     if(y > bottomLimit){ doc.addPage(); y = 20; }
     doc.text(line, x, y);
@@ -2074,7 +2098,7 @@ const PDF = {
       doc.setFontSize(10); doc.setFont(undefined,'bold'); doc.text('Cliente:', 14, y);
       doc.setFont(undefined,'normal'); doc.text(rec.cliente||'', 34, y);
       y+=6; doc.setFont(undefined,'bold'); doc.text('Dirección:', 14, y);
-      doc.setFont(undefined,'normal'); doc.text(doc.splitTextToSize(rec.direccion||'',150), 34, y);
+      doc.setFont(undefined,'normal'); customWrap(doc, rec.direccion||'', 150).forEach((l,i)=> doc.text(l, 34, y+i*4.6));
       y+=6; doc.setFont(undefined,'bold'); doc.text('Teléfono:', 14, y);
       doc.setFont(undefined,'normal'); doc.text(rec.telefono||'', 34, y);
       doc.setFont(undefined,'bold'); doc.text('Fecha:', 130, y);
