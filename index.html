@@ -2021,6 +2021,7 @@ function sanitizeRecDeep(obj){
 function writeWrappedText(doc, text, x, startY, maxWidth, lineHeight, bottomLimit){
   let y = startY;
   const lines = doc.splitTextToSize(text||'-', maxWidth);
+  if(window.DEBUG_PDF) console.log('writeWrappedText: textoLen=', (text||'').length, 'lineas=', lines.length, JSON.stringify(lines));
   lines.forEach(line=>{
     if(y > bottomLimit){ doc.addPage(); y = 20; }
     doc.text(line, x, y);
