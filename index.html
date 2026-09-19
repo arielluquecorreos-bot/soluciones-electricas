@@ -1970,7 +1970,7 @@ document.getElementById('i_factura').addEventListener('change', e=>{
    ========================================================= */
 function sanitizeForPdf(value){
   if(typeof value !== 'string') return value;
-  return value
+  let v = value
     .replace(/\u00A0/g, ' ')            // espacio "duro" que mete Word
     .replace(/[\u2000-\u200A]/g, ' ')   // otros espacios unicode raros
     .replace(/[\u200B-\u200D\uFEFF]/g, '') // espacios de ancho cero / caracteres invisibles
@@ -1978,8 +1978,32 @@ function sanitizeForPdf(value){
     .replace(/\r\n/g, '\n')
     .replace(/[\u2018\u2019]/g, "'")    // comillas simples "curvas" de Word
     .replace(/[\u201C\u201D]/g, '"')    // comillas dobles "curvas" de Word
-    .replace(/[ \t]+/g, ' ')            // colapsar espacios múltiples (sin tocar saltos de línea)
-    .trim();
+    .replace(/\u00D7/g, 'x')            // × (multiplicación) — la fuente del PDF mide mal su ancho
+    .replace(/[\u03A9\u2126]/g, 'ohm')  // Ω (ohm) — no soportado por la fuente del PDF
+    .replace(/\u03BC/g, '\u00B5')       // μ griega → signo micro (sí soportado)
+    .replace(/\u00B1/g, '+/-');         // ±
+  v = collapseLetterSpacing(v);
+  v = v.replace(/[ \t]+/g, ' ').trim(); // colapsar espacios múltiples (sin tocar saltos de línea)
+  return v;
+}
+// Revierte texto copiado de una fuente justificada, donde cada letra queda
+// separada por un espacio real (ej: "s u s t i t u y ó" → "sustituyó").
+// Solo actúa sobre corridas de 5 o más "palabras" de una sola letra seguidas,
+// para no tocar palabras normales de una letra (a, y, o, etc.).
+function collapseLetterSpacing(text){
+  const tokens = text.split(' ');
+  const out = [];
+  let i = 0;
+  const esLetraOdigito = t => t.length===1 && /[A-Za-zÀ-ÿ0-9]/.test(t);
+  while(i < tokens.length){
+    if(esLetraOdigito(tokens[i])){
+      let j = i, palabra = '';
+      while(j < tokens.length && esLetraOdigito(tokens[j])){ palabra += tokens[j]; j++; }
+      if(j - i >= 5){ out.push(palabra); i = j; continue; }
+    }
+    out.push(tokens[i]); i++;
+  }
+  return out.join(' ');
 }
 function sanitizeRecDeep(obj){
   if(obj == null) return obj;
