@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-19-v8-customwrap -->
+<!-- BUILD_VERSION: 2026-09-19-v9-fixnarrowspace -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -1973,7 +1973,7 @@ function sanitizeForPdf(value){
   if(typeof value !== 'string') return value;
   let v = value
     .replace(/\u00A0/g, ' ')            // espacio "duro" que mete Word
-    .replace(/[\u2000-\u200A]/g, ' ')   // otros espacios unicode raros
+    .replace(/[\u2000-\u200A\u202F\u205F\u2060\uFEFF]/g, ' ')   // otros espacios unicode raros (incluye el "espacio angosto" U+202F que usan antes de unidades como "mm²" o "A")
     .replace(/[\u200B-\u200D\uFEFF]/g, '') // espacios de ancho cero / caracteres invisibles
     .replace(/[\u2028\u2029]/g, '\n')   // separadores de línea/párrafo raros
     .replace(/\r\n/g, '\n')
@@ -2019,7 +2019,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-19-v8-customwrap';
+window.BUILD_VERSION = '2026-09-19-v9-fixnarrowspace';
 // Arma las líneas nosotros mismos, palabra por palabra, sin usar
 // doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
 function customWrap(doc, text, maxWidth){
