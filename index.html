@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-19-v9-fixnarrowspace -->
+<!-- BUILD_VERSION: 2026-09-23-v10-safetynet -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -1973,17 +1973,24 @@ function sanitizeForPdf(value){
   if(typeof value !== 'string') return value;
   let v = value
     .replace(/\u00A0/g, ' ')            // espacio "duro" que mete Word
-    .replace(/[\u2000-\u200A\u202F\u205F\u2060\uFEFF]/g, ' ')   // otros espacios unicode raros (incluye el "espacio angosto" U+202F que usan antes de unidades como "mm²" o "A")
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // espacios de ancho cero / caracteres invisibles
+    .replace(/[\u2000-\u200A\u202F\u205F\u2060\uFEFF]/g, ' ')   // otros espacios unicode raros (incluye "espacio angosto" antes de unidades como "mm²" o "A")
+    .replace(/[\u200B-\u200D]/g, '')    // espacios de ancho cero / caracteres invisibles
     .replace(/[\u2028\u2029]/g, '\n')   // separadores de línea/párrafo raros
     .replace(/\r\n/g, '\n')
-    .replace(/[\u2018\u2019]/g, "'")    // comillas simples "curvas" de Word
-    .replace(/[\u201C\u201D]/g, '"')    // comillas dobles "curvas" de Word
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")   // comillas simples "curvas"
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')   // comillas dobles "curvas"
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015]/g, '-')   // guiones/rayas especiales (ej: "cable‑canal" con guion sin salto de línea)
+    .replace(/\u2026/g, '...')          // puntos suspensivos como un solo carácter
     .replace(/\u00D7/g, 'x')            // × (multiplicación) — la fuente del PDF mide mal su ancho
     .replace(/[\u03A9\u2126]/g, 'ohm')  // Ω (ohm) — no soportado por la fuente del PDF
     .replace(/\u03BC/g, '\u00B5')       // μ griega → signo micro (sí soportado)
     .replace(/\u00B1/g, '+/-');         // ±
   v = collapseLetterSpacing(v);
+  // Red de seguridad final: la fuente del PDF solo soporta Latin-1 (letras y
+  // tildes del español incluidas). Cualquier símbolo fuera de ese rango que se
+  // haya colado y no reconozcamos arriba se reemplaza por un espacio, para que
+  // nunca más rompa la generación del PDF — aunque se pierda ese símbolo puntual.
+  v = v.replace(/[^\x00-\xFF\n]/g, ' ');
   v = v.replace(/[ \t]+/g, ' ').trim(); // colapsar espacios múltiples (sin tocar saltos de línea)
   return v;
 }
@@ -2019,7 +2026,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-19-v9-fixnarrowspace';
+window.BUILD_VERSION = '2026-09-23-v10-safetynet';
 // Arma las líneas nosotros mismos, palabra por palabra, sin usar
 // doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
 function customWrap(doc, text, maxWidth){
