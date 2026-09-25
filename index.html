@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-23-v10-safetynet -->
+<!-- BUILD_VERSION: 2026-09-23-v11-nolicense -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -742,18 +742,6 @@ input,select,textarea{font-family:inherit;}
     </div>
 
     <div class="card-block">
-      <h3>⚡ Mi licencia</h3>
-      <div class="hint" id="licenciaInfo" style="margin-bottom:10px;">—</div>
-      <button class="btn btn-secondary" style="width:100%;" onclick="License.mostrarActivacion(false)">Activar con un código nuevo</button>
-    </div>
-
-    <div class="card-block">
-      <h3>🔑 Panel de administrador</h3>
-      <div class="hint" style="margin-bottom:10px;">Solo para vos — generar y revocar códigos de acceso para otras personas.</div>
-      <button class="btn btn-secondary" style="width:100%;" onclick="Nav.go('admin')">Abrir panel de administrador</button>
-    </div>
-
-    <div class="card-block">
       <h3>✨ Mejorar con IA (opcional)</h3>
       <div class="hint" style="margin-bottom:8px;">Para usar los botones de "redactar con IA" y "✨ mejorar texto", pegá acá tu propia clave — es gratis en <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a> (Groq) o pagás lo que uses en <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> (Claude). Sin esto, esos botones no funcionan.</div>
       <div class="field" style="margin-bottom:8px;"><label>Tu clave de IA</label><input id="cfg_aiKey" type="password" placeholder="gsk_... o sk-ant-..."></div>
@@ -870,9 +858,7 @@ const License = {
   get(){ try{ return JSON.parse(localStorage.getItem('licencia')); }catch(e){ return null; } },
   set(lic){ localStorage.setItem('licencia', JSON.stringify(lic)); },
   vigente(){
-    const lic = License.get();
-    if(!lic || !lic.vencimiento) return false;
-    return new Date(lic.vencimiento).getTime() > Date.now();
+    return true; // sistema de licencias desactivado — uso personal, sin códigos
   },
   diasRestantes(){
     const lic = License.get();
@@ -2026,7 +2012,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-23-v10-safetynet';
+window.BUILD_VERSION = '2026-09-23-v11-nolicense';
 // Arma las líneas nosotros mismos, palabra por palabra, sin usar
 // doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
 function customWrap(doc, text, maxWidth){
@@ -3633,7 +3619,6 @@ const AdminPanel = {
 
 const Settings = {
   render(){
-    License.renderInfo();
     GoogleAuthUI.renderInfo();
     const cfg = DB.cfg();
     document.getElementById('cfg_nombre').value = cfg.nombre||'';
@@ -3684,18 +3669,7 @@ const Settings = {
   Sync.updateBadge(false);
   GoogleAuth.init();
   if(GoogleAuth.isSignedIn()) Sync.pull(false);
-
-  if(!License.vigente()){
-    License.mostrarActivacion(true);
-  } else {
-    License.renderInfo();
-    License.reverificar().then(()=>{
-      if(!License.vigente()){ License.mostrarActivacion(true); return; }
-      License.renderInfo();
-      if(!GoogleAuth.isSignedIn()) document.getElementById('googleOverlay').style.display='flex';
-    });
-    if(License.vigente() && !GoogleAuth.isSignedIn()) document.getElementById('googleOverlay').style.display='flex';
-  }
+  if(!GoogleAuth.isSignedIn()) document.getElementById('googleOverlay').style.display='flex';
 })();
 </script>
 </body>
