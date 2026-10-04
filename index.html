@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-23-v13-tecnico -->
+<!-- BUILD_VERSION: 2026-09-23-v14-footerfix -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -2019,7 +2019,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-23-v13-tecnico';
+window.BUILD_VERSION = '2026-09-23-v14-footerfix';
 // Arma las líneas nosotros mismos, palabra por palabra, sin usar
 // doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
 function customWrap(doc, text, maxWidth){
@@ -2184,7 +2184,11 @@ const PDF = {
       }
 
       doc.setFontSize(8.5); doc.setTextColor(100);
-      if(cfg.leyenda) doc.text(cfg.leyenda, 14, 285);
+      if(cfg.leyenda){
+        const leyLines = customWrap(doc, cfg.leyenda, 182);
+        const startY = 285 - (leyLines.length-1)*4;
+        leyLines.forEach((l,i)=> doc.text(l, 14, startY + i*4));
+      }
       doc.text(`${cfg.rubro||''}  |  ${cfg.nombre||''}  |  Tel: ${cfg.tel||''}`, 14, 290);
 
       await PDF.agregarPlanos(doc, rec);
@@ -2264,9 +2268,15 @@ const PDF = {
       if(rec.factura){ doc.text('Facturación: '+(rec.facturaDatos||'A convenir'),14,y); y+=6; }
 
       doc.setFontSize(8.5); doc.setTextColor(100);
-      doc.text('Todas las intervenciones eléctricas son realizadas según criterio técnico bajo el reglamento de la A.E.A.', 14, 282);
-      if(cfg.leyenda) doc.text(cfg.leyenda, 14, 287);
+      // Se arma de abajo hacia arriba: línea de rubro fija al final, la leyenda
+      // (que puede ocupar varias líneas) justo arriba, y la frase fija por encima de todo eso.
       doc.text(`${cfg.rubro||''}  |  ${cfg.nombre||''}  |  Tel: ${cfg.tel||''}`, 14, 292);
+      let footCursor = 287;
+      if(cfg.leyenda){
+        const leyLines = customWrap(doc, cfg.leyenda, 182);
+        for(let i=leyLines.length-1;i>=0;i--){ doc.text(leyLines[i], 14, footCursor); footCursor -= 4; }
+      }
+      doc.text('Todas las intervenciones eléctricas son realizadas según criterio técnico bajo el reglamento de la A.E.A.', 14, footCursor);
 
       await PDF.agregarPlanos(doc, rec);
       doc.save(`Informe_${String(rec.numero).padStart(4,'0')}_${(rec.propietario||rec.establecimiento||'').replace(/\s+/g,'')}.pdf`);
