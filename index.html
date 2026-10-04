@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-23-v11-nolicense -->
+<!-- BUILD_VERSION: 2026-09-23-v13-tecnico -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -761,7 +761,7 @@ input,select,textarea{font-family:inherit;}
       <div class="field"><label>Nombre</label><input id="cfg_nombre" placeholder="Ej: Ariel Luque"></div>
       <div class="field"><label>Rubro</label><input id="cfg_rubro" placeholder="Ej: Soluciones Eléctricas"></div>
       <div class="field"><label>Teléfono</label><input id="cfg_tel" placeholder="Ej: 3492322020"></div>
-      <div class="field" style="margin-bottom:0;"><label>Leyenda del pie del PDF</label><input id="cfg_leyenda" placeholder="Ej: "></div>
+      <div class="field" style="margin-bottom:0;"><label>Leyenda del pie del PDF</label><input id="cfg_leyenda" placeholder="Ej: Todos los materiales están calculados según criterio técnico de la A.E.A. La seguridad tuya y de tu familia es nuestra responsabilidad."></div>
       <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="Settings.saveBiz()">Guardar datos</button>
     </div>
 
@@ -1106,22 +1106,29 @@ const GSheets = {
     });
   },
 
-  // Numeración de presupuestos/informes — vive en la hoja "Config" (fila 2: nextPresup, nextInforme).
+  // Numeración de presupuestos/informes y datos del negocio — viven en la hoja
+  // "Config" (fila 2: nextPresup, nextInforme, nombre, rubro, tel, leyenda).
   async readConfig(){
     const id = await GSheets.ensureSpreadsheet();
     const token = await GoogleAuth.ensureToken();
-    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Config!A2:B2')}`, {headers:{Authorization:'Bearer '+token}});
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Config!A2:F2')}`, {headers:{Authorization:'Bearer '+token}});
     const data = await res.json();
     const row = (data.values||[])[0];
     if(!row) return {nextPresup:1, nextInforme:1};
-    return {nextPresup:Number(row[0])||1, nextInforme:Number(row[1])||1};
+    return {
+      nextPresup:Number(row[0])||1, nextInforme:Number(row[1])||1,
+      nombre:row[2]||'', rubro:row[3]||'', tel:row[4]||'', leyenda:row[5]||''
+    };
   },
   async saveConfig(cfg){
     const id = await GSheets.ensureSpreadsheet();
     const token = await GoogleAuth.ensureToken();
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Config!A2:B2')}?valueInputOption=RAW`, {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Config!A2:F2')}?valueInputOption=RAW`, {
       method:'PUT', headers:{Authorization:'Bearer '+token, 'Content-Type':'application/json'},
-      body: JSON.stringify({values:[[Number(cfg.nextPresup)||1, Number(cfg.nextInforme)||1]]})
+      body: JSON.stringify({values:[[
+        Number(cfg.nextPresup)||1, Number(cfg.nextInforme)||1,
+        cfg.nombre||'', cfg.rubro||'', cfg.tel||'', cfg.leyenda||''
+      ]]})
     });
   }
 };
@@ -2012,7 +2019,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-23-v11-nolicense';
+window.BUILD_VERSION = '2026-09-23-v13-tecnico';
 // Arma las líneas nosotros mismos, palabra por palabra, sin usar
 // doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
 function customWrap(doc, text, maxWidth){
@@ -2098,6 +2105,10 @@ const PDF = {
       doc.setFont(undefined,'normal'); doc.text(fechaFmt, 148, y);
       y+=6; doc.setFont(undefined,'bold'); doc.text('Modalidad:', 14, y);
       doc.setFont(undefined,'normal'); doc.text(rec.modalidad||'', 34, y);
+      y+=6;
+      doc.setFontSize(9); doc.setFont(undefined,'normal');
+      doc.text(`Técnico interviniente: ${cfg.nombre||''} - Tel ${cfg.tel||''} -`, 14, y);
+      doc.setFontSize(10);
       y+=8;
 
       if(rec.descripcion){
@@ -2198,7 +2209,7 @@ const PDF = {
       doc.text(`Establecimiento: ${rec.establecimiento||''}`,14,y); y+=5;
       doc.text(`Dirección: ${rec.direccion||''}`,14,y); y+=5;
       doc.text(`Propietario/a: ${rec.propietario||''}    Tel: ${rec.telefono||''}`,14,y); y+=5;
-      doc.text(`Técnico interviniente: ${cfg.nombre||''} — ${cfg.rubro||''}`,14,y); y+=9;
+      doc.text(`Técnico interviniente: ${cfg.nombre||''} - Tel ${cfg.tel||''} -`,14,y); y+=9;
 
       section('Motivo de la visita'); para(rec.motivo);
       section('Inspección y diagnóstico'); para(rec.diagnostico);
@@ -2521,7 +2532,14 @@ const Sync = {
       const localCfg = DB.cfg();
       localCfg.nextPresup = cfgCloud.nextPresup;
       localCfg.nextInforme = cfgCloud.nextInforme;
+      // Los datos del negocio solo se traen de la nube si ahí hay algo cargado,
+      // para no pisar con vacío lo que ya tenías guardado en este dispositivo.
+      if(cfgCloud.nombre) localCfg.nombre = cfgCloud.nombre;
+      if(cfgCloud.rubro) localCfg.rubro = cfgCloud.rubro;
+      if(cfgCloud.tel) localCfg.tel = cfgCloud.tel;
+      if(cfgCloud.leyenda) localCfg.leyenda = cfgCloud.leyenda;
       DB.setCfg(localCfg);
+      if(document.getElementById('screen-settings').classList.contains('active')) Settings.render();
       Sync.updateBadge(true);
       Home.renderList();
       if(document.getElementById('screen-catalogo').classList.contains('active')) CatalogoUI.renderList(document.getElementById('catBuscar').value);
@@ -3631,7 +3649,7 @@ const Settings = {
     document.getElementById('statusInfo').textContent =
       `${state.presupuestos.length} presupuestos · ${state.informes.length} informes guardados en este dispositivo.`;
   },
-  saveBiz(){
+  async saveBiz(){
     const cfg = DB.cfg();
     cfg.nombre = document.getElementById('cfg_nombre').value.trim();
     cfg.rubro = document.getElementById('cfg_rubro').value.trim();
@@ -3639,6 +3657,12 @@ const Settings = {
     cfg.leyenda = document.getElementById('cfg_leyenda').value.trim();
     DB.setCfg(cfg);
     toast('Datos guardados','ok');
+    if(GoogleAuth.isSignedIn()){
+      try{
+        await GSheets.saveConfig({nextPresup:cfg.nextPresup, nextInforme:cfg.nextInforme, nombre:cfg.nombre, rubro:cfg.rubro, tel:cfg.tel, leyenda:cfg.leyenda});
+        toast('Datos guardados y respaldados en Drive ✓','ok');
+      }catch(e){ /* queda guardado local igual */ }
+    }
   },
   saveAiKey(){
     const cfg = DB.cfg();
