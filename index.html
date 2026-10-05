@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_VERSION: 2026-09-23-v14-footerfix -->
+<!-- BUILD_VERSION: 2026-09-23-v15-nooverwrite -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -2019,7 +2019,7 @@ function sanitizeRecDeep(obj){
 }
 // Escribe un párrafo largo paginando ANTES de que una línea se corte al final
 // de la hoja. Devuelve el nuevo Y para seguir escribiendo desde ahí.
-window.BUILD_VERSION = '2026-09-23-v14-footerfix';
+window.BUILD_VERSION = '2026-09-23-v15-nooverwrite';
 // Arma las líneas nosotros mismos, palabra por palabra, sin usar
 // doc.splitTextToSize (para esquivar cualquier bug interno de esa función).
 function customWrap(doc, text, maxWidth){
@@ -2542,12 +2542,13 @@ const Sync = {
       const localCfg = DB.cfg();
       localCfg.nextPresup = cfgCloud.nextPresup;
       localCfg.nextInforme = cfgCloud.nextInforme;
-      // Los datos del negocio solo se traen de la nube si ahí hay algo cargado,
-      // para no pisar con vacío lo que ya tenías guardado en este dispositivo.
-      if(cfgCloud.nombre) localCfg.nombre = cfgCloud.nombre;
-      if(cfgCloud.rubro) localCfg.rubro = cfgCloud.rubro;
-      if(cfgCloud.tel) localCfg.tel = cfgCloud.tel;
-      if(cfgCloud.leyenda) localCfg.leyenda = cfgCloud.leyenda;
+      // Los datos del negocio NUNCA se pisan solos: si ya tenías algo cargado
+      // en este dispositivo (aunque sea viejo), se respeta. La nube solo rellena
+      // lo que esté vacío acá (por ejemplo, la primera vez en un dispositivo nuevo).
+      if(!localCfg.nombre && cfgCloud.nombre) localCfg.nombre = cfgCloud.nombre;
+      if(!localCfg.rubro && cfgCloud.rubro) localCfg.rubro = cfgCloud.rubro;
+      if(!localCfg.tel && cfgCloud.tel) localCfg.tel = cfgCloud.tel;
+      if(!localCfg.leyenda && cfgCloud.leyenda) localCfg.leyenda = cfgCloud.leyenda;
       DB.setCfg(localCfg);
       if(document.getElementById('screen-settings').classList.contains('active')) Settings.render();
       Sync.updateBadge(true);
